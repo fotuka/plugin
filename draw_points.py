@@ -23,13 +23,19 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QFileDialog
+from qgis._core import Qgis, QgsProject
+from qgis.core import QgsVectorLayer
 
 # Initialize Qt resources from file resources.py
+from qgis.utils import iface
+
 from .resources import *
 # Import the code for the dialog
+from .calculation import *
 from .draw_points_dialog import DrawPointsDialog
 import os.path
+import os
 
 
 class DrawPoints:
@@ -62,10 +68,20 @@ class DrawPoints:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&Draw Points')
+        self.dlg = DrawPointsDialog()
+        self.choose = 'none'
 
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
+
+        # меню выбора штучек
+        self.dlg.choose_grid_button.clicked.connect(self.click_choose_grid)
+        self.dlg.choose_gridslope_button.clicked.connect(self.click_choose_gridslope)
+        self.dlg.choose_snow_button.clicked.connect(self.click_choose_snow)
+        self.dlg.choose_snowadvanced_button.clicked.connect(self.click_choose_snowadvanced)
+
+        self.dlg.choose_path.clicked.connect(self.select_output_file)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -81,7 +97,6 @@ class DrawPoints:
         """
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('DrawPoints', message)
-
 
     def add_action(
         self,
@@ -170,7 +185,6 @@ class DrawPoints:
         # will be set False in run()
         self.first_start = True
 
-
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
@@ -179,22 +193,146 @@ class DrawPoints:
                 action)
             self.iface.removeToolBarIcon(action)
 
+    def grid_hide(self):
+        self.dlg.grid_widget.hide()
+        self.dlg.grid_height.setValue(0)
+        self.dlg.grid_length.setValue(0)
+        self.dlg.grid_vertical_lines_amount.setValue(0)
+        self.dlg.grid_horizontal_lines_amount.setValue(0)
+
+    def snow_hide(self):
+        self.dlg.snow_widget.hide()
+        self.dlg.snow_radius.setValue(0)
+        self.dlg.snow_lines_amount.setValue(0)
+        self.dlg.snow_dots_amount.setValue(0)
+
+    def clear_types_input(self):
+        self.dlg.snow_radius.setValue(0)
+        self.dlg.snow_lines_amount.setValue(0)
+        self.dlg.snow_dots_amount.setValue(0)
+        self.dlg.grid_height.setValue(0)
+        self.dlg.grid_length.setValue(0)
+        self.dlg.grid_vertical_lines_amount.setValue(0)
+        self.dlg.grid_horizontal_lines_amount.setValue(0)
+        self.dlg.rotate.setValue(0)
+        self.dlg.coords_x.setValue(0)
+        self.dlg.coords_y.setValue(0)
+
+    def click_choose_grid(self):
+        self.snow_hide()
+        self.dlg.grid_widget.show()
+        self.dlg.rotate_widget.show()
+        self.dlg.coords_widget.show()
+        self.dlg.top_widget.show()
+        self.clear_types_input()
+        self.dlg.coords_label.setText('Координаты левого нижнего угла')
+        self.choose = 'grid'
+
+    def click_choose_gridslope(self):
+        self.snow_hide()
+        self.dlg.grid_widget.show()
+        self.dlg.rotate_widget.show()
+        self.dlg.coords_widget.show()
+        self.dlg.top_widget.show()
+        self.clear_types_input()
+        self.dlg.coords_label.setText('Координаты левого нижнего угла')
+        self.choose = 'gridslope'
+
+    def click_choose_snow(self):
+        self.grid_hide()
+        self.dlg.snow_widget.show()
+        self.dlg.rotate_widget.show()
+        self.dlg.coords_widget.show()
+        self.dlg.top_widget.show()
+        self.clear_types_input()
+        self.dlg.coords_label.setText('Координаты центра')
+        self.choose = 'snow'
+
+    def click_choose_snowadvanced(self):
+        self.grid_hide()
+        self.dlg.snow_widget.show()
+        self.dlg.rotate_widget.show()
+        self.dlg.coords_widget.show()
+        self.dlg.top_widget.show()
+        self.clear_types_input()
+        self.dlg.coords_label.setText('Координаты центра')
+        self.choose = 'snowadvanced'
+
+    def select_output_file(self):
+        filename, _filter = QFileDialog.getSaveFileName(
+            self.dlg, "Select   output file ", "", '*.csv')
+        self.dlg.save_in.setText(filename)
 
     def run(self):
         """Run method that performs all the real work"""
 
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        if self.first_start == True:
-            self.first_start = False
-            self.dlg = DrawPointsDialog()
 
         # show the dialog
         self.dlg.show()
-        # Run the dialog event loop
+        self.clear_types_input()
+        self.grid_hide()
+        self.snow_hide()
+        self.dlg.rotate_widget.hide()
+        self.dlg.coords_widget.hide()
+        self.dlg.top_widget.hide()
+        self.dlg.save_in.setText("Укажитe путь")
         result = self.dlg.exec_()
         # See if OK was pressed
+
         if result:
             # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+            # substitute with your code
+            if self.choose == 'grid':
+                grid_height = self.dlg.grid_height.value()
+                grid_length = self.dlg.grid_length.value()
+                grid_horizontal_lines_amount = self.dlg.grid_horizontal_lines_amount.value()
+                grid_vertical_lines_amount = self.dlg.grid_vertical_lines_amount.value()
+                figure = Grid(grid_length, grid_height, grid_horizontal_lines_amount, grid_vertical_lines_amount)
+                figure.create()
+                figure.move_x(self.dlg.coords_x.value())
+                figure.move_y(self.dlg.coords_y.value())
+
+            if self.choose == 'gridslope':
+                grid_height = self.dlg.grid_height.value()
+                grid_length = self.dlg.grid_length.value()
+                grid_horizontal_lines_amount = self.dlg.grid_horizontal_lines_amount.value()
+                grid_vertical_lines_amount = self.dlg.grid_vertical_lines_amount.value()
+                figure = GridSlope(grid_length, grid_height, grid_horizontal_lines_amount, grid_vertical_lines_amount)
+                figure.create()
+                figure.move_x(self.dlg.coords_x.value())
+                figure.move_y(self.dlg.coords_y.value())
+
+            if self.choose == 'snow':
+                snow_dots_amount = self.dlg.snow_dots_amount.value()
+                snow_lines_amount = self.dlg.snow_lines_amount.value()
+                snow_radius = self.dlg.snow_radius.value()
+                figure = Snow(snow_radius, snow_dots_amount, snow_lines_amount)
+                figure.create()
+                figure.move_x(self.dlg.coords_x.value())
+                figure.move_y(self.dlg.coords_y.value())
+
+            if self.choose == 'snowadvanced':
+                snow_dots_amount = self.dlg.snow_dots_amount.value()
+                snow_lines_amount = self.dlg.snow_lines_amount.value()
+                snow_radius = self.dlg.snow_radius.value()
+                figure = SnowAdvanced(snow_radius, snow_dots_amount, snow_lines_amount)
+                figure.create()
+                figure.move_x(self.dlg.coords_x.value())
+                figure.move_y(self.dlg.coords_y.value())
+
+            rotate_degree = self.dlg.rotate.value()
+            figure.rotate(rotate_degree)
+            figure.export('/home/geoserver/xy.csv')
+            uri = 'file:///home/geoserver/xy.csv?type=regexp&delimiter=%20&useHeader=No&maxFields=10000&detectTypes=yes&xField=field_1&yField=field_2&crs=EPSG:4326&spatialIndex=no&subsetIndex=no&watchFile=no&field=field_1:text&field=field_2:text'
+            lyr = QgsVectorLayer(uri, 'New txt', 'delimitedtext', crs=self.dlg.system_of_coords.crs())
+            QgsProject.instance().addMapLayer(lyr)
+
+            if self.dlg.save_in.toPlainText() != 'Укажите путь':
+                path = self.dlg.save_in.text()
+                figure.export(path)
+
+            self.iface.messageBar().pushMessage(
+                "Success",
+                level=Qgis.Success, duration=3)
